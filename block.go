@@ -25,7 +25,7 @@ type Block struct {
 		Height     uint64     `json:"height"`
 		OutputNum  uint64     `json:"-"`
 		Outs       []TxOutput `json:"vout"`
-		ExtraSize  uint8      `json:"-"`
+		ExtraSize  uint64     `json:"-"`
 		Extra      ByteArray  `json:"extra"`
 	} `json:"miner_tx"`
 
