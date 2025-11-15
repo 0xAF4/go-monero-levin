@@ -34,6 +34,7 @@ type TxInput struct {
 type TxOutput struct {
 	Amount  uint64 `json:"amount"`
 	Target  Hash   `json:"key"`
+	Type    byte   `json:"type"`
 	ViewTag HByte  `json:"view_tag"`
 }
 
@@ -110,10 +111,11 @@ func (tx *Transaction) ParseTx() {
 
 		// читаем target (обычно один байт типа и 32 байта ключа)
 		targetType, _ := reader.ReadByte()
-		if targetType != 0x02 {
-			// 0x02 = TXOUT_TO_KEY (обычный output Monero)
-			fmt.Printf("⚠️ Unknown TxOut target type: 0x%X\n", targetType)
-		}
+		_ = targetType
+		// if targetType != 0x02 {
+		// 	// 0x02 = TXOUT_TO_KEY (обычный output Monero)
+		// 	fmt.Printf("⚠️ Unknown TxOut target type: 0x%X\n", targetType)
+		// }
 		reader.Read(out.Target[:])
 		b, _ := reader.ReadByte()
 		out.ViewTag = HByte(b)
