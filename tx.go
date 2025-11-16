@@ -3,6 +3,7 @@ package levin
 import (
 	"bytes"
 	"fmt"
+	"slices"
 
 	"filippo.io/edwards25519"
 )
@@ -39,6 +40,7 @@ type TxOutput struct {
 }
 
 type Echd struct {
+	Mask   Hash    `json:"mask"`
 	Amount HAmount `json:"amount"`
 }
 
@@ -108,14 +110,7 @@ func (tx *Transaction) ParseTx() {
 	for i := 0; i < int(tx.VoutCount); i++ {
 		var out TxOutput
 		out.Amount, _ = ReadVarint(reader)
-
-		// читаем target (обычно один байт типа и 32 байта ключа)
-		targetType, _ := reader.ReadByte()
-		_ = targetType
-		// if targetType != 0x02 {
-		// 	// 0x02 = TXOUT_TO_KEY (обычный output Monero)
-		// 	fmt.Printf("⚠️ Unknown TxOut target type: 0x%X\n", targetType)
-		// }
+		out.Type, _ = reader.ReadByte()
 		reader.Read(out.Target[:])
 		b, _ := reader.ReadByte()
 		out.ViewTag = HByte(b)
@@ -147,6 +142,9 @@ func (tx *Transaction) ParseRctSig() {
 
 	for i := 0; i < len(tx.Outputs); i++ {
 		ecdh := Echd{}
+		if !slices.Contains([]uint64{4, 5, 6}, RctSignature.Type) {
+			reader.Read(ecdh.Mask[:])
+		}
 		reader.Read(ecdh.Amount[:])
 		RctSignature.EcdhInfo = append(RctSignature.EcdhInfo, ecdh)
 	}
@@ -304,6 +302,128 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (floa
 		return totalAmount, id, nil
 	}
 	return totalAmount, 0, nil
+}
+
+func (tx *Transaction) CalculatePart1() []byte {
+	var buf bytes.Buffer
+
+	// Version
+	buf.Write(encodeVarint(tx.Version))
+
+	// Unlock time
+	buf.Write(encodeVarint(tx.UnlockTime))
+
+	// Inputs
+	buf.Write(encodeVarint(uint64(len(tx.Inputs))))
+	for _, input := range tx.Inputs {
+		buf.WriteByte(input.Type)
+
+		if input.Type == 0x02 { // TxIn to key
+			buf.Write(encodeVarint(input.Amount))
+			buf.Write(encodeVarint(uint64(len(input.KeyOffsets))))
+			for _, offset := range input.KeyOffsets {
+				buf.Write(encodeVarint(offset))
+			}
+			buf.Write(input.KeyImage[:])
+		}
+	}
+
+	// Outputs
+	buf.Write(encodeVarint(uint64(len(tx.Outputs))))
+	for _, output := range tx.Outputs {
+		buf.Write(encodeVarint(output.Amount))
+		buf.WriteByte(output.Type)
+		buf.Write(output.Target[:])
+		buf.WriteByte(byte(output.ViewTag))
+	}
+
+	// Extra
+	buf.Write(encodeVarint(uint64(len(tx.Extra))))
+	buf.Write(tx.Extra)
+
+	return buf.Bytes()
+}
+
+func (tx *Transaction) CalculatePart2() []byte {
+	var buf bytes.Buffer
+
+	buf.Write(encodeVarint(tx.RctSignature.Type))
+	buf.Write(encodeVarint(tx.RctSignature.TxnFee))
+
+	if tx.RctSignature.Type == 2 { //MLSAGBorromean
+		for _, ps := range tx.RctSigPrunable.PseudoOuts {
+			buf.Write(ps[:])
+		}
+	}
+	if slices.Contains([]uint64{4, 5, 6}, tx.RctSignature.Type) { //MLSAGBulletproofCompactAmount, CLSAGBulletproof, CLSAGBulletproofPlus
+		for _, ei := range tx.RctSignature.EcdhInfo {
+			buf.Write(ei.Amount[:])
+		}
+	} else {
+		for _, ei := range tx.RctSignature.EcdhInfo {
+			buf.Write(ei.Mask[:])
+			buf.Write(ei.Amount[:])
+		}
+	}
+
+	for _, c := range tx.RctSignature.OutPk {
+		buf.Write(c[:])
+	}
+
+	return buf.Bytes()
+}
+
+func (tx *Transaction) CalculatePart3() []byte {
+	var buf bytes.Buffer
+
+	buf.Write(encodeVarint(1))
+	for _, bpp := range tx.RctSigPrunable.Bpp {
+		buf.Write(bpp.A[:])
+		buf.Write(bpp.A1[:])
+		buf.Write(bpp.B[:])
+		buf.Write(bpp.R1[:])
+		buf.Write(bpp.S1[:])
+		buf.Write(bpp.D1[:])
+		buf.Write(encodeVarint(uint64(len(bpp.L))))
+		for _, l := range bpp.L {
+			buf.Write(l[:])
+		}
+		buf.Write(encodeVarint(uint64(len(bpp.R))))
+		for _, r := range bpp.R {
+			buf.Write(r[:])
+		}
+	}
+
+	for _, clsag := range tx.RctSigPrunable.CLSAGs {
+		for _, s := range clsag.S {
+			buf.Write(s[:])
+		}
+		buf.Write(clsag.C1[:])
+		buf.Write(clsag.D[:])
+	}
+
+	for _, pseudo := range tx.RctSigPrunable.PseudoOuts {
+		buf.Write(pseudo[:])
+	}
+
+	return buf.Bytes()
+}
+
+func (tx *Transaction) CalcHash() {
+	// Step 1: Hash the transaction parts
+	part1 := keccak256(tx.CalculatePart1())
+	part2 := keccak256(tx.CalculatePart2())
+	part3 := keccak256(tx.CalculatePart3())
+
+	// Step 2: Concatenate the parts
+	concat := append(part1, part2...)
+	concat = append(concat, part3...)
+
+	// Step 3: Final keccak hash
+	finalHash := keccak256(concat)
+
+	// Step 4: Copy to tx.Hash
+	copy(tx.Hash[:], finalHash)
 }
 
 func DeriveViewTag(txPubKey []byte, privateViewKey []byte, index uint64) (byte, error) {
