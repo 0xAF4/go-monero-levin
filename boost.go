@@ -1,6 +1,7 @@
 package levin
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -23,6 +24,7 @@ const (
 	BoostSerializeTypeBool   byte = 0x0b
 	BoostSerializeTypeObject byte = 0x0c
 	BoostSerializeTypeArray  byte = 0xd
+	BoostSerializeTy
 
 	BoostSerializeFlagArray byte = 0x80
 )
@@ -160,6 +162,37 @@ func (blockIds BoostBlockIds) Bytes() []byte {
 	return result
 }
 
+type BoostTxIDs []uint64
+
+func (txIds BoostTxIDs) Bytes() []byte {
+	if len(txIds) == 0 {
+		return []byte{}
+	}
+
+	// Каждый uint64 = 8 байтов (БЕЗ типа)
+	temp := make([]byte, 0, len(txIds)*8)
+	for _, txId := range txIds {
+		b := make([]byte, 8)
+		binary.LittleEndian.PutUint64(b, txId)
+		temp = append(temp, b...)
+	}
+
+	payloadSize := len(temp)
+	varInB, err := VarIn(payloadSize)
+	if err != nil {
+		return nil
+	}
+
+	// Префикс: тип uint64 + размер строки
+	prefix := []byte{BoostSerializeTypeString}
+	prefix = append(prefix, varInB...)
+
+	result := make([]byte, 0, len(prefix)+payloadSize)
+	result = append(result, prefix...)
+	result = append(result, temp...)
+	return result
+}
+
 type BoostBlock []string
 
 func (blockIds BoostBlock) Bytes() []byte {
@@ -179,19 +212,14 @@ func (blockIds BoostBlock) Bytes() []byte {
 
 	payloadSize := len(temp)
 	varInB, err := VarIn(payloadSize)
-	if err != nil || len(varInB) != 2 {
+	if err != nil {
 		return nil
 	}
 
-	prefix := []byte{
-		BoostSerializeTypeString,
-		varInB[0],
-		varInB[1],
-	}
+	var buf bytes.Buffer
+	buf.WriteByte(BoostSerializeTypeString)
+	buf.Write(varInB)
+	buf.Write(temp)
 
-	result := make([]byte, 0, payloadSize+3)
-	result = append(result, prefix...)
-	result = append(result, temp...)
-
-	return result
+	return buf.Bytes()
 }
