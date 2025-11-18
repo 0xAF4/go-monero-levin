@@ -229,7 +229,7 @@ func (c *Client) ReadMessage() (*Header, *PortableStorage, error) {
 func (c *Client) SendRequest(Command uint32, payload []byte) error {
 	len := uint64(len(payload))
 	reqHeaderB := NewRequestHeader(Command, len)
-	if slices.Contains([]uint32{NotifyRequestChain, NotifyRequestGetObjects}, Command) {
+	if slices.Contains([]uint32{NotifyRequestChain, NotifyRequestGetObjects, NotifyRequestFluffyMissing}, Command) {
 		reqHeaderB.ExpectsResponse = false
 	}
 
