@@ -24,7 +24,6 @@ const (
 	BoostSerializeTypeBool   byte = 0x0b
 	BoostSerializeTypeObject byte = 0x0c
 	BoostSerializeTypeArray  byte = 0xd
-	BoostSerializeTy
 
 	BoostSerializeFlagArray byte = 0x80
 )
