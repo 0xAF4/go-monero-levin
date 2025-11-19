@@ -182,14 +182,12 @@ func (txIds BoostTxIDs) Bytes() []byte {
 		return nil
 	}
 
-	// Префикс: тип uint64 + размер строки
-	prefix := []byte{BoostSerializeTypeString}
-	prefix = append(prefix, varInB...)
+	var buf bytes.Buffer
+	buf.WriteByte(BoostSerializeTypeString)
+	buf.Write(varInB)
+	buf.Write(temp)
 
-	result := make([]byte, 0, len(prefix)+payloadSize)
-	result = append(result, prefix...)
-	result = append(result, temp...)
-	return result
+	return buf.Bytes()
 }
 
 type BoostBlock []string
