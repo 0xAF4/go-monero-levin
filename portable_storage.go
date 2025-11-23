@@ -274,7 +274,7 @@ func ReadObject(bytes []byte) (int, Entries) {
 		ttype := bytes[idx]
 		idx += 1
 
-		n, obj := ReadAny(bytes[idx:], ttype)
+		n, obj := ReadAny(bytes[idx:], ttype, entry.Name)
 		idx += n
 
 		entry.Value = obj
@@ -295,7 +295,7 @@ func ReadArray(ttype byte, bytes []byte) (int, Entries) {
 	entries := make(Entries, i)
 
 	for iter := 0; iter < i; iter++ {
-		n, obj := ReadAny(bytes[idx:], ttype)
+		n, obj := ReadAny(bytes[idx:], ttype, "none")
 		idx += n
 
 		entries[iter] = Entry{
@@ -306,7 +306,7 @@ func ReadArray(ttype byte, bytes []byte) (int, Entries) {
 	return idx, entries
 }
 
-func ReadAny(bytes []byte, ttype byte) (int, interface{}) {
+func ReadAny(bytes []byte, ttype byte, name string) (int, interface{}) {
 	var (
 		idx = 0
 		n   = 0
@@ -374,7 +374,20 @@ func ReadAny(bytes []byte, ttype byte) (int, interface{}) {
 		return idx, obj
 	}
 
-	panic(fmt.Errorf("unknown ttype %x", ttype))
+	if ttype == BoostSerializeTypeBool {
+		var obj bool
+		if bytes[idx] == 0x00 {
+			obj = false
+		} else {
+			obj = true
+		}
+		n += 1
+		idx += n
+
+		return idx, obj
+	}
+
+	panic(fmt.Errorf("name: %s; unknown ttype %x: data: %x", name, ttype, bytes[idx]))
 }
 
 // reads var int, returning number of bytes read and the integer in that byte
